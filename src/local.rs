@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client_addr = "http://127.0.0.1:50051".parse().unwrap();
     let mut local_store = Store::new(client_addr).await?;
 
-    print!("dstore v0.1.0\nThis is an experimental database, do contribute to further developments at https://github.com/de-sh/kvdb. \nUse `.exit` to exit the repl\ndb > ");
+    print!("dstore v0.1.0\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ");
     io::stdout().flush().expect("Error");
 
     for cmd in stdin().lock().lines() {
