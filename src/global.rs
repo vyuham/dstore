@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use tonic::{transport::Server, Request, Response, Status};
 
 use dstore::dstore_proto::dstore_server::{Dstore, DstoreServer};
-use dstore::dstore_proto::{GetArg, SetArg, GetResult, SetResult};
+use dstore::dstore_proto::{GetArg, GetResult, SetArg, SetResult};
 struct Store {
-    db: Arc<Mutex<HashMap<String, String>>>
+    db: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Store {
@@ -32,8 +32,14 @@ impl Dstore for Store {
         let db = self.db.lock().unwrap();
         let args = get_arg.into_inner();
         match db.get(&args.key) {
-            Some(val) => Ok(Response::new(GetResult { value: val.clone(), success: true })),
-            None => Ok(Response::new(GetResult {value: "".to_string(), success: false})) 
+            Some(val) => Ok(Response::new(GetResult {
+                value: val.clone(),
+                success: true,
+            })),
+            None => Ok(Response::new(GetResult {
+                value: "".to_string(),
+                success: false,
+            })),
         }
     }
 
@@ -54,8 +60,11 @@ impl Dstore for Store {
 async fn main() {
     let addr = "127.0.0.1:50051".parse().unwrap();
     let global_store = Arc::new(Mutex::new(HashMap::<String, String>::new()));
-    
+
     println!("Dstore server listening on {}", addr);
 
-    Server::builder().add_service(DstoreServer::new(Store::new(global_store))).serve(addr).await;
+    Server::builder()
+        .add_service(DstoreServer::new(Store::new(global_store)))
+        .serve(addr)
+        .await;
 }

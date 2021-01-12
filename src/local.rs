@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::io::{stdin, BufRead, Write};
-use tonic::{Request, transport::Channel};
+use tonic::{transport::Channel, Request};
 
 use dstore::dstore_proto::dstore_client::DstoreClient;
 use dstore::dstore_proto::{GetArg, SetArg};
@@ -13,9 +13,9 @@ struct Store {
 
 impl Store {
     async fn new(addr: String) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self { 
+        Ok(Self {
             db: HashMap::new(),
-            global: DstoreClient::connect(addr).await?
+            global: DstoreClient::connect(addr).await?,
         })
     }
 
@@ -35,7 +35,10 @@ impl Store {
                     } else {
                         let key = words[1].to_string();
                         let value = words[2..].join(" ");
-                        let req = Request::new(SetArg { key: key.clone(), value: value.clone() });
+                        let req = Request::new(SetArg {
+                            key: key.clone(),
+                            value: value.clone(),
+                        });
                         let res = self.global.set(req).await.unwrap();
                         if res.into_inner().success {
                             self.db.insert(key, value);
@@ -47,7 +50,7 @@ impl Store {
                             eprintln!("(Updated local) Key occupied!");
                         }
                     }
-                },
+                }
                 "get" | "select" | "output" | "out" | "o" => {
                     let key = words[1].to_string();
                     match self.db.get(&key) {
@@ -64,7 +67,7 @@ impl Store {
                             }
                         }
                     }
-                },
+                }
                 "del" | "delete" | "rem" | "remove" | "rm" | "d" => {
                     // Removes only from local
                     let key = words[1];
@@ -72,10 +75,10 @@ impl Store {
                         Some(value) => {
                             eprintln!("({} -> {}) Removing local mapping!", key, value);
                             self.db.remove(key);
-                        },
-                        None => eprintln!("Key-Value mapping doesn't exist")
+                        }
+                        None => eprintln!("Key-Value mapping doesn't exist"),
                     }
-                },
+                }
                 _ => eprintln!("Unknown command!"),
             }
         }
@@ -115,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match cmd {
             Ok(cmd) => {
                 local_store.parse_input(cmd.trim().to_string()).await;
-            },
+            }
             Err(_) => eprint!("Error in reading command, exiting REPL."),
         }
         print!("db > ");
