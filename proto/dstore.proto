@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package dstore;
+
+message SetArg {
+    string key = 1;
+    string value = 2;
+}
+
+message GetArg {
+    string key = 1;
+}
+
+message SetResult {
+    bool success = 1;
+}
+
+message GetResult {
+    string value = 1;
+    bool success = 2;
+}
+
+service Dstore {
+    rpc Set(SetArg) returns (SetResult);
+    rpc Get(GetArg) returns (GetResult);
+    rpc Del(GetArg) returns (SetResult);
+}
