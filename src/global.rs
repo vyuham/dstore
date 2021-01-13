@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use bytes::Bytes;
 use tonic::{transport::Server, Request, Response, Status};
 
 use dstore::dstore_proto::dstore_server::{Dstore, DstoreServer};
 use dstore::dstore_proto::{GetArg, GetResult, SetArg, SetResult};
 struct Store {
-    db: Arc<Mutex<HashMap<String, String>>>,
+    db: Arc<Mutex<HashMap<String, Bytes>>>,
 }
 
 impl Store {
-    fn new(db: Arc<Mutex<HashMap<String, String>>>) -> Self {
+    fn new(db: Arc<Mutex<HashMap<String, Bytes>>>) -> Self {
         Self { db }
     }
 }
@@ -22,7 +23,7 @@ impl Dstore for Store {
         match db.contains_key(&args.key) {
             true => Ok(Response::new(SetResult { success: false })),
             false => {
-                db.insert(args.key, args.value);
+                db.insert(args.key, Bytes::from(args.value));
                 Ok(Response::new(SetResult { success: true }))
             }
         }
@@ -33,25 +34,13 @@ impl Dstore for Store {
         let args = get_arg.into_inner();
         match db.get(&args.key) {
             Some(val) => Ok(Response::new(GetResult {
-                value: val.clone(),
+                value: val.to_vec(),
                 success: true,
             })),
             None => Ok(Response::new(GetResult {
-                value: "".to_string(),
+                value: vec![],
                 success: false,
             })),
-        }
-    }
-
-    async fn del(&self, del_arg: Request<GetArg>) -> Result<Response<SetResult>, Status> {
-        let mut db = self.db.lock().unwrap();
-        let args = del_arg.into_inner();
-        match db.contains_key(&args.key) {
-            false => Ok(Response::new(SetResult { success: false })),
-            true => {
-                db.remove(&args.key);
-                Ok(Response::new(SetResult { success: true }))
-            }
         }
     }
 }
@@ -59,7 +48,7 @@ impl Dstore for Store {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:50051".parse().unwrap();
-    let global_store = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+    let global_store = Arc::new(Mutex::new(HashMap::<String, Bytes>::new()));
 
     println!("Dstore server listening on {}", addr);
 

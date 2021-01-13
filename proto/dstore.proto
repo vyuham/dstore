@@ -4,7 +4,7 @@ package dstore;
 
 message SetArg {
     string key = 1;
-    string value = 2;
+    bytes value = 2;
 }
 
 message GetArg {
@@ -16,12 +16,11 @@ message SetResult {
 }
 
 message GetResult {
-    string value = 1;
+    bytes value = 1;
     bool success = 2;
 }
 
 service Dstore {
     rpc Set(SetArg) returns (SetResult);
     rpc Get(GetArg) returns (GetResult);
-    rpc Del(GetArg) returns (SetResult);
 }

@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::io;
 use std::io::{stdin, BufRead, Write};
+use bytes::Bytes;
 use tonic::{transport::Channel, Request};
 
 use dstore::dstore_proto::dstore_client::DstoreClient;
 use dstore::dstore_proto::{GetArg, SetArg};
 
 struct Store {
-    db: HashMap<String, String>,
+    db: HashMap<String, Bytes>,
     global: DstoreClient<Channel>,
 }
 
@@ -37,16 +38,16 @@ impl Store {
                         let value = words[2..].join(" ");
                         let req = Request::new(SetArg {
                             key: key.clone(),
-                            value: value.clone(),
+                            value: value.as_bytes().to_vec(),
                         });
                         let res = self.global.set(req).await.unwrap();
                         if res.into_inner().success {
-                            self.db.insert(key, value);
+                            self.db.insert(key, Bytes::from(value));
                             eprintln!("Database updated");
                         } else {
                             let req = Request::new(GetArg { key: key.clone() });
                             let res = self.global.get(req).await.unwrap().into_inner();
-                            self.db.insert(key, res.value);
+                            self.db.insert(key, Bytes::from(res.value));
                             eprintln!("(Updated local) Key occupied!");
                         }
                     }
@@ -54,14 +55,14 @@ impl Store {
                 "get" | "select" | "output" | "out" | "o" => {
                     let key = words[1].to_string();
                     match self.db.get(&key) {
-                        Some(value) => println!("db: {} -> {}", key, value),
+                        Some(value) => println!("db: {} -> {}", key, String::from_utf8(value.to_vec()).unwrap()),
                         None => {
                             let req = Request::new(GetArg { key: key.clone() });
                             let res = self.global.get(req).await.unwrap().into_inner();
                             if res.success {
-                                println!("global: {} -> {}\t(Updating Local)", key, res.value);
+                                println!("global: {} -> {}\t(Updating Local)", key, String::from_utf8(res.value.clone()).unwrap());
                                 // Update local
-                                self.db.insert(key, res.value);
+                                self.db.insert(key, Bytes::from(res.value));
                             } else {
                                 eprintln!("Key-Value mapping doesn't exist");
                             }
@@ -73,7 +74,7 @@ impl Store {
                     let key = words[1];
                     match self.db.get(key) {
                         Some(value) => {
-                            eprintln!("({} -> {}) Removing local mapping!", key, value);
+                            eprintln!("({} -> {}) Removing local mapping!", key, String::from_utf8(value.to_vec()).unwrap());
                             self.db.remove(key);
                         }
                         None => eprintln!("Key-Value mapping doesn't exist"),
