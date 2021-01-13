@@ -4,14 +4,6 @@ version = "0.1.0"
 authors = ["Devdutt Shenoi <devdutt@outlook.in>"]
 edition = "2018"
 
-[[bin]]
-name = "global"
-path = "src/global.rs"
-
-[[bin]]
-name = "local"
-path = "src/local.rs"
-
 [dependencies]
 tokio = { version = "0.2", features = ["full"] }
 bytes = "1"

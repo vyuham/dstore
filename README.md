@@ -17,7 +17,7 @@ git clone https://github.com/vyuham/dstore
 ```
 2. Run the server(ensure `cargo` is installed with [rustup](https://rustup.rs)):
 ```bash
-cargo run --bin global
+cargo run --example global
 ```
 Ensure the following is showing on the terminal:
 ```
@@ -25,7 +25,7 @@ Dstore server listening on 127.0.0.1:50051
 ```
 3. On another terminal, start a client:
 ```bash
-cargo run --bin local
+cargo run --example local
 ```
 Ensure the following is showing on the terminal:
 ```

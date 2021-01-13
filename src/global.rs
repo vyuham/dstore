@@ -1,17 +1,29 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use bytes::Bytes;
+use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, net::SocketAddr};
 use tonic::{transport::Server, Request, Response, Status};
 
-use dstore::dstore_proto::dstore_server::{Dstore, DstoreServer};
-use dstore::dstore_proto::{GetArg, GetResult, SetArg, SetResult};
-struct Store {
+use crate::dstore_proto::dstore_server::{Dstore, DstoreServer};
+use crate::dstore_proto::{GetArg, GetResult, SetArg, SetResult};
+
+pub struct Store {
     db: Arc<Mutex<HashMap<String, Bytes>>>,
 }
 
 impl Store {
-    fn new(db: Arc<Mutex<HashMap<String, Bytes>>>) -> Self {
-        Self { db }
+    fn new() -> Self {
+        Self {
+            db: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub async fn start(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+        Server::builder()
+            .add_service(DstoreServer::new(Store::new()))
+            .serve(addr)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -43,19 +55,4 @@ impl Dstore for Store {
             })),
         }
     }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "127.0.0.1:50051".parse().unwrap();
-    let global_store = Arc::new(Mutex::new(HashMap::<String, Bytes>::new()));
-
-    println!("Dstore server listening on {}", addr);
-
-    Server::builder()
-        .add_service(DstoreServer::new(Store::new(global_store)))
-        .serve(addr)
-        .await?;
-
-    Ok(())
 }
