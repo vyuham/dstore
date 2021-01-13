@@ -2,19 +2,11 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
-pub struct DstoreError {
-    msg: String,
-}
-
-impl DstoreError {
-    pub fn new(msg: String) -> Self {
-        Self { msg }
-    }
-}
+pub struct DstoreError(pub String);
 
 impl fmt::Display for DstoreError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "dstore error: {}", self.msg)
+        write!(f, "dstore error: {}", self.0)
     }
 }
 

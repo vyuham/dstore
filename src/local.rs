@@ -25,7 +25,7 @@ impl Store {
         value: Bytes,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.db.contains_key(&key) {
-            Err(Box::new(DstoreError::new("Key occupied!".to_string())))
+            Err(Box::new(DstoreError("Key occupied!".to_string())))
         } else {
             let req = Request::new(SetArg {
                 key: key.clone(),
@@ -39,7 +39,7 @@ impl Store {
                 let req = Request::new(GetArg { key: key.clone() });
                 let res = self.global.get(req).await?.into_inner();
                 self.db.insert(key, Bytes::from(res.value));
-                Err(Box::new(DstoreError::new(
+                Err(Box::new(DstoreError(
                     "Local updated, Key occupied!".to_string(),
                 )))
             }
@@ -57,7 +57,7 @@ impl Store {
                     self.db.insert(key.clone(), Bytes::from(res.value.clone()));
                     Ok(Bytes::from(res.value))
                 } else {
-                    Err(Box::new(DstoreError::new(
+                    Err(Box::new(DstoreError(
                         "Key-Value mapping doesn't exist".to_string(),
                     )))
                 }
