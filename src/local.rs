@@ -124,5 +124,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         print!("db > ");
         io::stdout().flush().expect("Error");
     }
+
     Ok(())
 }

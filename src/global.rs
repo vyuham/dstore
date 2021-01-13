@@ -57,7 +57,7 @@ impl Dstore for Store {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:50051".parse().unwrap();
     let global_store = Arc::new(Mutex::new(HashMap::<String, String>::new()));
 
@@ -66,5 +66,7 @@ async fn main() {
     Server::builder()
         .add_service(DstoreServer::new(Store::new(global_store)))
         .serve(addr)
-        .await;
+        .await?;
+
+    Ok(())
 }
