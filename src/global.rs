@@ -17,9 +17,9 @@ impl Store {
         }
     }
 
-    pub async fn start(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn start_server(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         Server::builder()
-            .add_service(DstoreServer::new(Store::new()))
+            .add_service(DstoreServer::new(Self::new()))
             .serve(addr)
             .await?;
 
