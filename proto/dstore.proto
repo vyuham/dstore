@@ -23,4 +23,5 @@ message GetResult {
 service Dstore {
     rpc Set(SetArg) returns (SetResult);
     rpc Get(GetArg) returns (GetResult);
+    rpc Del(GetArg) returns (SetResult);
 }

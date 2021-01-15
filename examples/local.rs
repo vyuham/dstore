@@ -45,7 +45,11 @@ impl REPL {
                 "del" | "delete" | "rem" | "remove" | "rm" | "d" => {
                     // Removes only from local
                     let key = words[1].to_string();
-                    Ok(self.store.remove(key))
+                    if let Err(e) = self.store.remove(&key).await {
+                        eprintln!("{}", e);
+                    }
+
+                    Ok(())
                 }
                 _ => Ok(eprintln!("Unknown command!")),
             }

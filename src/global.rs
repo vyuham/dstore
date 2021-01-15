@@ -55,4 +55,13 @@ impl Dstore for Store {
             })),
         }
     }
+
+    async fn del(&self, get_arg: Request<GetArg>) -> Result<Response<SetResult>, Status> {
+        let mut db = self.db.lock().unwrap();
+        let args = get_arg.into_inner();
+        match db.remove(&args.key) {
+            Some(_) => Ok(Response::new(SetResult { success: true })),
+            None => Ok(Response::new(SetResult { success: false })),
+        }
+    }
 }

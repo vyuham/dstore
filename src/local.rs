@@ -65,17 +65,30 @@ impl Store {
         }
     }
 
-    pub fn remove(&mut self, key: String) {
-        match self.db.get(&key) {
-            Some(value) => {
-                eprintln!(
-                    "({} -> {}) Removing local mapping!",
-                    key,
-                    String::from_utf8(value.to_vec()).unwrap()
-                );
-                self.db.remove(&key);
-            }
-            None => eprintln!("Key-Value mapping doesn't exist"),
+    pub async fn remove(&mut self, key: &String) -> Result<(), Box<dyn std::error::Error>> {
+        let mut err = vec![];
+        let req = Request::new(GetArg { key: key.clone() });
+        let res = self.global.del(req).await?.into_inner();
+        match res.success {
+            true => eprintln!("Global mapping removed (key: {})!", key),
+            false => err.push("global"),
+        }
+
+        match self.db.remove(key) {
+            Some(value) => eprintln!(
+                "Local mapping removed ({} -> {})!",
+                key,
+                String::from_utf8(value.to_vec()).unwrap()
+            ),
+            None => err.push("local"),
+        }
+
+        match err.len() {
+            0 => Ok(()),
+            _ => Err(Box::new(DstoreError(format!(
+                "Key missing from {}!",
+                err.join(" and ")
+            )))),
         }
     }
 }
