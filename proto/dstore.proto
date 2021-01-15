@@ -20,8 +20,22 @@ message GetResult {
     bool success = 2;
 }
 
+message Id {
+    int32 id = 1;
+}
+
+message Addr {
+    string addr = 1;
+}
+
 service Dstore {
     rpc Set(SetArg) returns (SetResult);
     rpc Get(GetArg) returns (GetResult);
+    rpc Del(GetArg) returns (SetResult);
+
+    rpc Join(Addr) returns (Id);
+}
+
+service Dnode {
     rpc Del(GetArg) returns (SetResult);
 }

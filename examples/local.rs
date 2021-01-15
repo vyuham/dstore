@@ -1,18 +1,20 @@
 use bytes::Bytes;
 use dstore::local::Store;
-use std::io;
-use std::io::{stdin, BufRead, Write};
+use std::{
+    error::Error,
+    io::{self, stdin, BufRead, Write},
+};
 
 pub struct REPL {
-    store: Store,
+    node: Store,
 }
 
 impl REPL {
-    async fn new(store: Store) -> Self {
-        Self { store }
+    async fn new(node: Store) -> Result<Self, Box<dyn Error>> {
+        Ok(Self { node })
     }
 
-    async fn parse_input(&mut self, cmd: String) -> Result<(), Box<dyn std::error::Error>> {
+    async fn parse_input(&mut self, cmd: String) -> Result<(), Box<dyn Error>> {
         // Meta commands start with `.`.
         if cmd.starts_with(".") {
             match MetaCmdResult::run(&cmd) {
@@ -25,7 +27,7 @@ impl REPL {
                 "set" | "put" | "insert" | "in" | "i" => {
                     let key = words[1].to_string();
                     let value = Bytes::from(words[2..].join(" "));
-                    if let Err(e) = self.store.insert(key, value).await {
+                    if let Err(e) = self.node.insert(key, value).await {
                         eprintln!("{}", e);
                     }
 
@@ -33,7 +35,7 @@ impl REPL {
                 }
                 "get" | "select" | "output" | "out" | "o" => {
                     let key = words[1].to_string();
-                    match self.store.get(&key).await {
+                    match self.node.get(&key).await {
                         Ok(value) => {
                             println!("db: {} -> {}", key, String::from_utf8(value.to_vec())?)
                         }
@@ -45,7 +47,7 @@ impl REPL {
                 "del" | "delete" | "rem" | "remove" | "rm" | "d" => {
                     // Removes only from local
                     let key = words[1].to_string();
-                    if let Err(e) = self.store.remove(&key).await {
+                    if let Err(e) = self.node.remove(&key).await {
                         eprintln!("{}", e);
                     }
 
@@ -78,12 +80,13 @@ impl MetaCmdResult {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_addr = "http://127.0.0.1:50051".parse().unwrap();
-    let local_store = Store::new(client_addr).await?;
-    let mut repl = REPL::new(local_store).await;
+async fn main() -> Result<(), Box<dyn Error>> {
+    let global_addr = "http://127.0.0.1:50051".to_string();
+    let local_addr = "127.0.0.1:50052".parse().unwrap();
+    let local_store = Store::start_client(global_addr, local_addr).await?;
+    let mut repl = REPL::new(local_store).await?;
 
-    print!("dstore v0.1.0\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ");
+    print!("dstore v0.1.0 (addr: {})\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ", repl.node.addr);
     io::stdout().flush().expect("Error");
 
     for cmd in stdin().lock().lines() {

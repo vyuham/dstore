@@ -29,7 +29,7 @@ cargo run --example local
 ```
 Ensure the following is showing on the terminal:
 ```
-dstore v0.1.0
+dstore v0.1.0 (addr: 127.0.0.1:50052)
 This is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. 
 Use `.exit` to exit the repl
 db > 
@@ -65,11 +65,12 @@ When you try to `GET` a key(say `hi`) that isn't available in 'Local' but exists
 ```
 global: hi -> hello     (Updating Local)
 ```
-- **DEL:** The user/process can remove local copies of a Key-Value pair with the `DEL`/`REM` keyword as shown below:
+- **DEL:** The user/process can removes local as well as global
+ copies of a Key-Value pair with the `DEL`/`REM` keyword as shown below:
 ```
 db> DEL key
 ```
-This only removes the key-value pairin from 'Local' while global still maintains a copy, this decision was made consciously :P
+This might only remove the key-value mapping from within the current 'Local' and 'Global' while other 'Local's may still maintain a copy, discussion on how to reflect changes across all 'Local's needs to take place. To test these claims, please change the port number in 'example/local.rs` and try opening a few 'Local' clients, with a special port for each and do different order of tasks relating to deleting key-value pairs. 
 
 ## Contribution
 Please consider opening an issue to discuss possible feature additions and use cases for the framework. We would love to review genuine PRs to fix bugs, solve issues and add feature, so do consider opening some!
