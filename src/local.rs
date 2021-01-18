@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use futures_util::stream;
 use std::{
     collections::HashMap,
     error::Error,
@@ -10,12 +11,15 @@ use tonic::{
     Request, Response, Status,
 };
 
-use crate::dstore_proto::{
-    dnode_server::{Dnode, DnodeServer},
-    dstore_client::DstoreClient,
-    Addr, GetArg, SetArg, SetResult,
-};
 use crate::DstoreError;
+use crate::{
+    dstore_proto::{
+        dnode_server::{Dnode, DnodeServer},
+        dstore_client::DstoreClient,
+        Addr, Byte, GetArg, SetArg, SetResult,
+    },
+    MAX_BYTE_SIZE,
+};
 
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -83,24 +87,44 @@ impl Store {
     pub async fn insert(&mut self, key: String, value: Bytes) -> Result<(), Box<dyn Error>> {
         let mut db = self.db.lock().unwrap();
         if db.contains_key(&key) {
-            Err(Box::new(DstoreError("Key occupied!".to_string())))
+            return Err(Box::new(DstoreError("Key occupied!".to_string())));
         } else {
-            let req = Request::new(SetArg {
-                key: key.clone(),
-                value: value.to_vec(),
-            });
-            let res = self.global.set(req).await?.into_inner();
-            if res.success {
-                db.insert(key, value);
-                Ok(eprintln!("Database updated"))
-            } else {
-                let req = Request::new(GetArg { key: key.clone() });
-                let res = self.global.get(req).await?.into_inner();
-                db.insert(key, Bytes::from(res.value));
-                Err(Box::new(DstoreError(
-                    "Local updated, Key occupied!".to_string(),
-                )))
+            let req = GetArg { key: key.clone() };
+            match self.global.contains_key(Request::new(req.clone())).await {
+                Ok(_) => {
+                    let res = self.global.get(Request::new(req)).await?.into_inner();
+                    db.insert(key, Bytes::from(res.value));
+                    return Err(Box::new(DstoreError(
+                        "Local updated, Key occupied!".to_string(),
+                    )));
+                }
+                Err(_) => {
+                    let res: SetResult;
+                    if value.len() > MAX_BYTE_SIZE {
+                        let mut frames = vec![Byte {
+                            body: key.as_bytes().to_vec(),
+                        }];
+                        for i in 0..value.len() / MAX_BYTE_SIZE {
+                            frames.push(Byte {
+                                body: value[i * MAX_BYTE_SIZE..(i + 1) * MAX_BYTE_SIZE].to_vec(),
+                            })
+                        }
+                        let req = Request::new(stream::iter(frames));
+                        res = self.global.set_file(req).await.unwrap().into_inner();
+                    } else {
+                        let req = Request::new(SetArg {
+                            key: key.clone(),
+                            value: value.to_vec(),
+                        });
+                        res = self.global.set(req).await?.into_inner();
+                    }
+                    if res.success {
+                        db.insert(key, value);
+                        return Ok(eprintln!("Database updated"));
+                    }
+                }
             }
+            Ok(())
         }
     }
 
