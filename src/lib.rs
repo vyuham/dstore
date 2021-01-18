@@ -15,5 +15,7 @@ pub mod dstore_proto {
     tonic::include_proto!("dstore");
 }
 
+pub const MAX_BYTE_SIZE: usize = 4_194_304;
+
 pub mod global;
 pub mod local;

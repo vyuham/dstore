@@ -13,7 +13,7 @@ use tonic::{
 use crate::dstore_proto::{
     dnode_server::{Dnode, DnodeServer},
     dstore_client::DstoreClient,
-    {Addr, GetArg, SetArg, SetResult},
+    Addr, GetArg, SetArg, SetResult,
 };
 use crate::DstoreError;
 

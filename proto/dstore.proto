@@ -28,9 +28,15 @@ message Addr {
     string addr = 1;
 }
 
+message Byte {
+    bytes body = 1;
+}
+
 service Dstore {
     rpc Set(SetArg) returns (SetResult);
+    rpc SetFile(stream Byte) returns (SetResult);
     rpc Get(GetArg) returns (GetResult);
+    rpc GetFile(GetArg) returns (stream Byte);
     rpc Del(GetArg) returns (SetResult);
 
     rpc Join(Addr) returns (Id);

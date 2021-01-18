@@ -5,7 +5,9 @@ authors = ["Devdutt Shenoi <devdutt@outlook.in>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2", features = ["full"] }
+tokio = { version = "0.2", features = ["macros", "sync", "stream", "time"] }
+futures-core = "0.3"
+futures-util = "0.3"
 bytes = "1"
 tonic = "0.3"
 prost = "0.6"
