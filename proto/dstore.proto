@@ -32,12 +32,17 @@ message Byte {
     bytes body = 1;
 }
 
+message Size {
+    int32 size = 1;
+}
+
 service Dstore {
     rpc Set(SetArg) returns (SetResult);
     rpc SetFile(stream Byte) returns (SetResult);
     rpc Get(GetArg) returns (GetResult);
     rpc GetFile(GetArg) returns (stream Byte);
     rpc Del(GetArg) returns (SetResult);
+    rpc ContainsKey(GetArg) returns (Size);
 
     rpc Join(Addr) returns (Id);
 }

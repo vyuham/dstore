@@ -12,7 +12,7 @@ use crate::{
     dstore_proto::{
         dnode_client::DnodeClient,
         dstore_server::{Dstore, DstoreServer},
-        Addr, Byte, GetArg, GetResult, Id, SetArg, SetResult,
+        Addr, Byte, GetArg, GetResult, Id, SetArg, SetResult, Size,
     },
     MAX_BYTE_SIZE,
 };
@@ -48,6 +48,17 @@ impl Dstore for Store {
         Ok(Response::new(Id {
             id: nodes.len() as i32,
         }))
+    }
+
+    async fn contains_key(&self, arg: Request<GetArg>) -> Result<Response<Size>, Status> {
+        let db = self.db.lock().unwrap();
+        if let Some(value) = db.get(&arg.into_inner().key) {
+            Ok(Response::new(Size {
+                size: value.len() as i32,
+            }))
+        } else {
+            Err(Status::not_found("Value doesn't exist"))
+        }
     }
 
     async fn set(&self, set_arg: Request<SetArg>) -> Result<Response<SetResult>, Status> {
