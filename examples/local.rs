@@ -22,10 +22,10 @@ impl REPL {
                 MetaCmdResult::Success => Ok(()),
             }
         } else {
-            let words = cmd.split(" ").collect::<Vec<&str>>();
+            let words: Vec<String> = cmd.split(" ").map(|x| x.to_string()).collect();
             match words[0].to_lowercase().as_ref() {
                 "set" | "put" | "insert" | "in" | "i" => {
-                    let key = words[1].to_string();
+                    let key = Bytes::from(words[1].clone());
                     let value = Bytes::from(words[2..].join(" "));
                     if let Err(e) = self.node.insert(key, value).await {
                         eprintln!("{}", e);
@@ -34,10 +34,14 @@ impl REPL {
                     Ok(())
                 }
                 "get" | "select" | "output" | "out" | "o" => {
-                    let key = words[1].to_string();
+                    let key = Bytes::from(words[1].clone());
                     match self.node.get(&key).await {
                         Ok(value) => {
-                            println!("db: {} -> {}", key, String::from_utf8(value.to_vec())?)
+                            println!(
+                                "db: {} -> {}",
+                                String::from_utf8(key.to_vec())?,
+                                String::from_utf8(value.to_vec())?
+                            )
                         }
                         Err(e) => eprintln!("{}", e),
                     }
@@ -46,7 +50,7 @@ impl REPL {
                 }
                 "del" | "delete" | "rem" | "remove" | "rm" | "d" => {
                     // Removes only from local
-                    let key = words[1].to_string();
+                    let key = Bytes::from(words[1].clone());
                     if let Err(e) = self.node.remove(&key).await {
                         eprintln!("{}", e);
                     }
@@ -65,8 +69,8 @@ pub enum MetaCmdResult {
 
 impl MetaCmdResult {
     /// Execute Meta commands on the REPL.
-    pub fn run(cmd: &String) -> Self {
-        match cmd.as_ref() {
+    pub fn run(cmd: &str) -> Self {
+        match cmd {
             ".exit" => std::process::exit(0),
             ".version" => {
                 if let Some(ver) = option_env!("CARGO_PKG_VERSION") {
@@ -81,8 +85,8 @@ impl MetaCmdResult {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let global_addr = "http://127.0.0.1:50051".to_string();
-    let local_addr = "127.0.0.1:50052".parse().unwrap();
+    let global_addr = "127.0.0.1:50051".to_string();
+    let local_addr = "127.0.0.1:50052".to_string();
     let local_store = Store::start_client(global_addr, local_addr).await?;
     let mut repl = REPL::new(local_store).await?;
 

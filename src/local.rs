@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures_util::stream;
+use futures_util::{stream, StreamExt};
 use std::{
     collections::HashMap,
     error::Error,
@@ -11,14 +11,13 @@ use tonic::{
     Request, Response, Status,
 };
 
-use crate::DstoreError;
 use crate::{
     dstore_proto::{
         dnode_server::{Dnode, DnodeServer},
         dstore_client::DstoreClient,
         Byte, Null, PushArg,
     },
-    MAX_BYTE_SIZE,
+    DstoreError, MAX_BYTE_SIZE,
 };
 
 #[derive(Debug, Clone)]
@@ -58,7 +57,7 @@ impl Store {
         global_addr: String,
         local_addr: String,
     ) -> Result<Self, Box<dyn Error>> {
-        let mut global = DstoreClient::connect(format!("http://{}",global_addr)).await?;
+        let mut global = DstoreClient::connect(format!("http://{}", global_addr)).await?;
         match global
             .join(Request::new(Byte {
                 body: local_addr.as_bytes().to_vec(),
@@ -91,6 +90,14 @@ impl Store {
     }
 
     pub async fn insert(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
+        if value.len() > MAX_BYTE_SIZE {
+            self.insert_single(key, value).await
+        } else {
+            self.insert_file(key, value).await
+        }
+    }
+
+    pub async fn insert_single(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
         let mut db = self.db.lock().unwrap();
         if db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
@@ -105,23 +112,48 @@ impl Store {
                     )))
                 }
                 Err(_) => {
-                    let res: Result<Response<Null>, Status>;
-                    if value.len() > MAX_BYTE_SIZE {
-                        let mut frames = vec![Byte { body: key.to_vec() }];
-                        for i in 0..value.len() / MAX_BYTE_SIZE {
-                            frames.push(Byte {
-                                body: value[i * MAX_BYTE_SIZE..(i + 1) * MAX_BYTE_SIZE].to_vec(),
-                            })
-                        }
-                        let req = Request::new(stream::iter(frames));
-                        res = self.global.push_file(req).await;
-                    } else {
-                        let req = Request::new(PushArg {
-                            key: key.to_vec(),
-                            value: value.to_vec(),
-                        });
-                        res = self.global.push(req).await;
+                    let mut frames = vec![Byte { body: key.to_vec() }];
+                    for i in 0..value.len() / MAX_BYTE_SIZE {
+                        frames.push(Byte {
+                            body: value[i * MAX_BYTE_SIZE..(i + 1) * MAX_BYTE_SIZE].to_vec(),
+                        })
                     }
+                    let req = Request::new(stream::iter(frames));
+                    let res = self.global.push_file(req).await;
+                    if let Err(e) = res {
+                        Err(Box::new(DstoreError(format!(
+                            "Couldn't update Global: {}",
+                            e
+                        ))))
+                    } else {
+                        db.insert(key, value);
+                        Ok(eprintln!("Database updated"))
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn insert_file(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
+        let mut db = self.db.lock().unwrap();
+        if db.contains_key(&key) {
+            return Err(Box::new(DstoreError("Key occupied!".to_string())));
+        } else {
+            let req = Byte { body: key.to_vec() };
+            match self.global.contains(Request::new(req.clone())).await {
+                Ok(_) => {
+                    let res = self.global.pull(Request::new(req)).await?.into_inner();
+                    db.insert(key, Bytes::from(res.body));
+                    Err(Box::new(DstoreError(
+                        "Local updated, Key occupied!".to_string(),
+                    )))
+                }
+                Err(_) => {
+                    let req = Request::new(PushArg {
+                        key: key.to_vec(),
+                        value: value.to_vec(),
+                    });
+                    let res = self.global.push(req).await;
                     if let Err(e) = res {
                         Err(Box::new(DstoreError(format!(
                             "Couldn't update Global: {}",
@@ -137,6 +169,33 @@ impl Store {
     }
 
     pub async fn get(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
+        let db = self.db.lock().unwrap();
+        match db.get(key) {
+            Some(value) => Ok(value.clone()),
+            None => {
+                drop(db);
+                let size = match self
+                    .global
+                    .contains(Request::new(Byte { body: key.to_vec() }))
+                    .await
+                {
+                    Ok(res) => res.into_inner().size,
+                    Err(e) => {
+                        return Err(Box::new(DstoreError(
+                            format!("Global: {}", e),
+                        )))
+                    }
+                } as usize;
+                if size > MAX_BYTE_SIZE {
+                    self.get_file(key).await
+                } else {
+                    self.get_single(key).await
+                }
+            }
+        }
+    }
+
+    pub async fn get_single(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
         let mut db = self.db.lock().unwrap();
         match db.get(key) {
             Some(value) => Ok(value.clone()),
@@ -153,6 +212,25 @@ impl Store {
                         "Key-Value mapping doesn't exist".to_string(),
                     ))),
                 }
+            }
+        }
+    }
+
+    pub async fn get_file(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
+        let mut db = self.db.lock().unwrap();
+        match db.get(key) {
+            Some(value) => Ok(value.clone()),
+            None => {
+                let req = Request::new(Byte { body: key.to_vec() });
+                let mut stream = self.global.pull_file(req).await.unwrap().into_inner();
+                eprintln!("Updating Local");
+                let mut value = vec![];
+                while let Some(frame) = stream.next().await {
+                    let mut frame = frame?;
+                    value.append(&mut frame.body);
+                }
+                db.insert(key.clone(), Bytes::from(value.clone()));
+                Ok(Bytes::from(value))
             }
         }
     }
