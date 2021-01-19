@@ -2,31 +2,12 @@ syntax = "proto3";
 
 package dstore;
 
-message SetArg {
-    string key = 1;
+message PushArg {
+    bytes key = 1;
     bytes value = 2;
 }
 
-message GetArg {
-    string key = 1;
-}
-
-message SetResult {
-    bool success = 1;
-}
-
-message GetResult {
-    bytes value = 1;
-    bool success = 2;
-}
-
-message Id {
-    int32 id = 1;
-}
-
-message Addr {
-    string addr = 1;
-}
+message Null {}
 
 message Byte {
     bytes body = 1;
@@ -37,16 +18,16 @@ message Size {
 }
 
 service Dstore {
-    rpc Set(SetArg) returns (SetResult);
-    rpc SetFile(stream Byte) returns (SetResult);
-    rpc Get(GetArg) returns (GetResult);
-    rpc GetFile(GetArg) returns (stream Byte);
-    rpc Del(GetArg) returns (SetResult);
-    rpc ContainsKey(GetArg) returns (Size);
+    rpc Push(PushArg) returns (Null);
+    rpc PushFile(stream Byte) returns (Null);
+    rpc Pull(Byte) returns (Byte);
+    rpc PullFile(Byte) returns (stream Byte);
+    rpc Contains(Byte) returns (Size);
+    rpc Remove(Byte) returns (Null);
 
-    rpc Join(Addr) returns (Id);
+    rpc Join(Byte) returns (Null);
 }
 
 service Dnode {
-    rpc Del(GetArg) returns (SetResult);
+    rpc Remove(Byte) returns (Null);
 }

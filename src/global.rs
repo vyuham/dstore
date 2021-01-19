@@ -3,6 +3,7 @@ use futures_util::StreamExt;
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    str,
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc;
@@ -12,14 +13,14 @@ use crate::{
     dstore_proto::{
         dnode_client::DnodeClient,
         dstore_server::{Dstore, DstoreServer},
-        Addr, Byte, GetArg, GetResult, Id, SetArg, SetResult, Size,
+        Byte, Null, PushArg, Size,
     },
     MAX_BYTE_SIZE,
 };
 
 pub struct Store {
-    db: Arc<Mutex<HashMap<String, Bytes>>>,
-    nodes: Arc<Mutex<Vec<String>>>,
+    db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
+    nodes: Arc<Mutex<Vec<Bytes>>>,
 }
 
 impl Store {
@@ -42,17 +43,15 @@ impl Store {
 
 #[tonic::async_trait]
 impl Dstore for Store {
-    async fn join(&self, join_arg: Request<Addr>) -> Result<Response<Id>, Status> {
+    async fn join(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
         let mut nodes = self.nodes.lock().unwrap();
-        nodes.push(format!("http://{}", join_arg.into_inner().addr));
-        Ok(Response::new(Id {
-            id: nodes.len() as i32,
-        }))
+        nodes.push(Bytes::from(args.into_inner().body));
+        Ok(Response::new(Null {}))
     }
 
-    async fn contains_key(&self, arg: Request<GetArg>) -> Result<Response<Size>, Status> {
+    async fn contains(&self, args: Request<Byte>) -> Result<Response<Size>, Status> {
         let db = self.db.lock().unwrap();
-        if let Some(value) = db.get(&arg.into_inner().key) {
+        if let Some(value) = db.get(&args.into_inner().body[..]) {
             Ok(Response::new(Size {
                 size: value.len() as i32,
             }))
@@ -61,62 +60,63 @@ impl Dstore for Store {
         }
     }
 
-    async fn set(&self, set_arg: Request<SetArg>) -> Result<Response<SetResult>, Status> {
+    async fn push(&self, args: Request<PushArg>) -> Result<Response<Null>, Status> {
         let mut db = self.db.lock().unwrap();
-        let args = set_arg.into_inner();
-        match db.contains_key(&args.key) {
-            true => Ok(Response::new(SetResult { success: false })),
+        let args = args.into_inner();
+        match db.contains_key(&args.key[..]) {
+            true => Err(Status::already_exists(format!(
+                "{} already in use.",
+                str::from_utf8(&args.key).unwrap()
+            ))),
             false => {
-                db.insert(args.key, Bytes::from(args.value));
-                Ok(Response::new(SetResult { success: true }))
+                db.insert(Bytes::from(args.key), Bytes::from(args.value));
+                Ok(Response::new(Null {}))
             }
         }
     }
 
-    async fn set_file(
+    async fn push_file(
         &self,
-        set_arg: Request<tonic::Streaming<Byte>>,
-    ) -> Result<Response<SetResult>, Status> {
-        let mut stream = set_arg.into_inner();
+        args: Request<tonic::Streaming<Byte>>,
+    ) -> Result<Response<Null>, Status> {
+        let mut stream = args.into_inner();
         let mut i: usize = 0;
-        let (mut key, mut buf) = (String::new(), vec![]);
-        {
-            while let Some(byte) = stream.next().await {
-                let byte = byte?;
-                if i == 0 {
-                    key = String::from_utf8(byte.body).unwrap();
-                } else {
-                    buf.append(&mut byte.body.clone());
-                }
-                i += 1;
+        let (mut key, mut buf) = (vec![], vec![]);
+        while let Some(byte) = stream.next().await {
+            let byte = byte?;
+            if i == 0 {
+                key.append(&mut byte.body.clone());
+            } else {
+                buf.append(&mut byte.body.clone());
             }
+            i += 1;
         }
 
-        self.db.lock().unwrap().insert(key, Bytes::from(buf));
-        Ok(Response::new(SetResult { success: true }))
+        self.db
+            .lock()
+            .unwrap()
+            .insert(Bytes::from(key), Bytes::from(buf));
+        Ok(Response::new(Null {}))
     }
 
-    async fn get(&self, get_arg: Request<GetArg>) -> Result<Response<GetResult>, Status> {
+    async fn pull(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
         let db = self.db.lock().unwrap();
-        let args = get_arg.into_inner();
-        match db.get(&args.key) {
-            Some(val) => Ok(Response::new(GetResult {
-                value: val.to_vec(),
-                success: true,
-            })),
-            None => Ok(Response::new(GetResult {
-                value: vec![],
-                success: false,
-            })),
+        let args = args.into_inner();
+        match db.get(&args.body[..]) {
+            Some(val) => Ok(Response::new(Byte { body: val.to_vec() })),
+            None => Err(Status::not_found(format!(
+                "{} mapping doesn't exist.",
+                str::from_utf8(&args.body).unwrap()
+            ))),
         }
     }
 
-    type GetFileStream = mpsc::Receiver<Result<Byte, Status>>;
+    type PullFileStream = mpsc::Receiver<Result<Byte, Status>>;
 
-    async fn get_file(
+    async fn pull_file(
         &self,
-        get_arg: Request<GetArg>,
-    ) -> Result<Response<Self::GetFileStream>, Status> {
+        args: Request<Byte>,
+    ) -> Result<Response<Self::PullFileStream>, Status> {
         let (mut tx, rx) = mpsc::channel(4);
         let db = self.db.clone();
 
@@ -124,7 +124,7 @@ impl Dstore for Store {
             let val = db
                 .lock()
                 .unwrap()
-                .get(&get_arg.into_inner().key)
+                .get(&args.into_inner().body[..])
                 .unwrap()
                 .to_vec();
             for i in 0..val.len() / MAX_BYTE_SIZE {
@@ -139,23 +139,27 @@ impl Dstore for Store {
         Ok(Response::new(rx))
     }
 
-    async fn del(&self, del_arg: Request<GetArg>) -> Result<Response<SetResult>, Status> {
-        let key = del_arg.into_inner().key;
+    async fn remove(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
+        let key = args.into_inner().body;
+
         // Notify all nodes to delete copy
         let nodes = self.nodes.lock().unwrap().clone();
         for addr in nodes {
-            let req = Request::new(GetArg { key: key.clone() });
+            let addr = format!("http://{}", str::from_utf8(&addr).unwrap());
             DnodeClient::connect(addr.clone())
                 .await
                 .unwrap()
-                .del(req)
+                .remove(Request::new(Byte { body: key.clone() }))
                 .await?;
-            println!("Deleting from node: {}", addr);
+            eprintln!("Deleting from node: {}", addr);
         }
 
-        match self.db.lock().unwrap().remove(&key) {
-            Some(_) => Ok(Response::new(SetResult { success: true })),
-            None => Ok(Response::new(SetResult { success: false })),
+        match self.db.lock().unwrap().remove(&key[..]) {
+            Some(_) => Ok(Response::new(Null {})),
+            None => Err(Status::not_found(format!(
+                "Couldn't remove {}",
+                str::from_utf8(&key).unwrap()
+            ))),
         }
     }
 }
