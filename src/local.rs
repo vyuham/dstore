@@ -1,6 +1,10 @@
 use bytes::Bytes;
 use futures_util::{stream, StreamExt};
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, sync::Arc};
+use tokio::{
+    sync::Mutex,
+    time::{self, Duration},
+};
 use tonic::{transport::Channel, Request};
 
 use crate::{
@@ -15,7 +19,10 @@ pub struct Node {
 }
 
 impl Node {
-    pub async fn new(global_addr: String, local_addr: String) -> Result<Self, Box<dyn Error>> {
+    pub async fn new(
+        global_addr: String,
+        local_addr: String,
+    ) -> Result<Arc<Mutex<Self>>, Box<dyn Error>> {
         let mut global = DstoreClient::connect(format!("http://{}", global_addr)).await?;
         match global
             .join(Request::new(Byte {
@@ -24,11 +31,21 @@ impl Node {
             .await
         {
             Ok(_) => {
-                let node = Self {
+                let node = Arc::new(Mutex::new(Self {
                     db: HashMap::new(),
                     global,
                     addr: local_addr,
-                };
+                }));
+
+                let mut timer = time::interval(Duration::from_secs(5));
+                let updater = node.clone();
+
+                tokio::spawn(async move {
+                    loop {
+                        timer.tick().await;
+                        updater.lock().await.update().await;
+                    }
+                });
 
                 Ok(node)
             }
@@ -36,8 +53,14 @@ impl Node {
         }
     }
 
-    async fn update(&mut self) {
-        while let Ok(key) = self.global.update(Request::new(Byte {body: self.addr.as_bytes().to_vec()})).await {
+    pub async fn update(&mut self) {
+        while let Ok(key) = self
+            .global
+            .update(Request::new(Byte {
+                body: self.addr.as_bytes().to_vec(),
+            }))
+            .await
+        {
             self.db.remove(&key.into_inner().body[..]);
         }
     }
@@ -51,8 +74,6 @@ impl Node {
     }
 
     pub async fn insert_single(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
-        self.update().await;
-        
         if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
         } else {
@@ -89,8 +110,6 @@ impl Node {
     }
 
     pub async fn insert_file(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
-        self.update().await;
-
         if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
         } else {
@@ -124,8 +143,6 @@ impl Node {
     }
 
     pub async fn get(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
-        self.update().await;
-
         match self.db.get(key) {
             Some(value) => Ok(value.clone()),
             None => {
@@ -147,8 +164,6 @@ impl Node {
     }
 
     pub async fn get_single(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
-        self.update().await;
-
         match self.db.get(key) {
             Some(value) => Ok(value.clone()),
             None => {
@@ -169,8 +184,6 @@ impl Node {
     }
 
     pub async fn get_file(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
-        self.update().await;
-
         match self.db.get(key) {
             Some(value) => Ok(value.clone()),
             None => {
