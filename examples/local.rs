@@ -1,16 +1,16 @@
 use bytes::Bytes;
-use dstore::local::Store;
+use dstore::local::Node;
 use std::{
     error::Error,
     io::{self, stdin, BufRead, Write},
 };
 
 pub struct REPL {
-    node: Store,
+    node: Node,
 }
 
 impl REPL {
-    async fn new(node: Store) -> Result<Self, Box<dyn Error>> {
+    async fn new(node: Node) -> Result<Self, Box<dyn Error>> {
         Ok(Self { node })
     }
 
@@ -87,7 +87,7 @@ impl MetaCmdResult {
 async fn main() -> Result<(), Box<dyn Error>> {
     let global_addr = "127.0.0.1:50051".to_string();
     let local_addr = "127.0.0.1:50052".to_string();
-    let local_store = Store::start_client(global_addr, local_addr).await?;
+    let local_store = Node::new(global_addr, local_addr).await?;
     let mut repl = REPL::new(local_store).await?;
 
     print!("dstore v0.1.0 (addr: {})\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ", repl.node.addr);
