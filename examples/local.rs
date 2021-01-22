@@ -1,17 +1,34 @@
 use bytes::Bytes;
-use dstore::local::Store;
+use dstore::local::Node;
 use std::{
     error::Error,
     io::{self, stdin, BufRead, Write},
+    sync::Arc,
 };
+use tokio::sync::Mutex;
 
 pub struct REPL {
-    node: Store,
+    node: Arc<Mutex<Node>>,
 }
 
 impl REPL {
-    async fn new(node: Store) -> Result<Self, Box<dyn Error>> {
+    async fn new(node: Arc<Mutex<Node>>) -> Result<Self, Box<dyn Error>> {
         Ok(Self { node })
+    }
+
+    async fn run(&mut self) {
+        print!("dstore v0.1.0 (addr: {})\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ", self.node.lock().await.addr);
+        io::stdout().flush().expect("Error");
+        for cmd in stdin().lock().lines() {
+            match cmd {
+                Ok(cmd) => {
+                    self.parse_input(cmd.trim().to_string()).await;
+                }
+                Err(_) => eprint!("Error in reading command, exiting REPL."),
+            }
+            print!("db > ");
+            io::stdout().flush().expect("Error");
+        }
     }
 
     async fn parse_input(&mut self, cmd: String) -> Result<(), Box<dyn Error>> {
@@ -27,7 +44,7 @@ impl REPL {
                 "set" | "put" | "insert" | "in" | "i" => {
                     let key = Bytes::from(words[1].clone());
                     let value = Bytes::from(words[2..].join(" "));
-                    if let Err(e) = self.node.insert(key, value).await {
+                    if let Err(e) = self.node.lock().await.insert(key, value).await {
                         eprintln!("{}", e);
                     }
 
@@ -35,7 +52,7 @@ impl REPL {
                 }
                 "get" | "select" | "output" | "out" | "o" => {
                     let key = Bytes::from(words[1].clone());
-                    match self.node.get(&key).await {
+                    match self.node.lock().await.get(&key).await {
                         Ok(value) => {
                             println!(
                                 "db: {} -> {}",
@@ -51,7 +68,7 @@ impl REPL {
                 "del" | "delete" | "rem" | "remove" | "rm" | "d" => {
                     // Removes only from local
                     let key = Bytes::from(words[1].clone());
-                    if let Err(e) = self.node.remove(&key).await {
+                    if let Err(e) = self.node.lock().await.remove(&key).await {
                         eprintln!("{}", e);
                     }
 
@@ -87,22 +104,9 @@ impl MetaCmdResult {
 async fn main() -> Result<(), Box<dyn Error>> {
     let global_addr = "127.0.0.1:50051".to_string();
     let local_addr = "127.0.0.1:50052".to_string();
-    let local_store = Store::start_client(global_addr, local_addr).await?;
-    let mut repl = REPL::new(local_store).await?;
+    let local_store = Node::new(global_addr, local_addr.clone()).await?;
 
-    print!("dstore v0.1.0 (addr: {})\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ", repl.node.addr);
-    io::stdout().flush().expect("Error");
-
-    for cmd in stdin().lock().lines() {
-        match cmd {
-            Ok(cmd) => {
-                repl.parse_input(cmd.trim().to_string()).await?;
-            }
-            Err(_) => eprint!("Error in reading command, exiting REPL."),
-        }
-        print!("db > ");
-        io::stdout().flush().expect("Error");
-    }
+    REPL::new(local_store).await?.run().await;
 
     Ok(())
 }

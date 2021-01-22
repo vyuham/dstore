@@ -24,10 +24,7 @@ service Dstore {
     rpc PullFile(Byte) returns (stream Byte);
     rpc Contains(Byte) returns (Size);
     rpc Remove(Byte) returns (Null);
+    rpc Update(Byte) returns (Byte);
 
     rpc Join(Byte) returns (Null);
-}
-
-service Dnode {
-    rpc Remove(Byte) returns (Null);
 }

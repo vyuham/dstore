@@ -1,62 +1,28 @@
 use bytes::Bytes;
 use futures_util::{stream, StreamExt};
-use std::{
-    collections::HashMap,
-    error::Error,
-    str,
-    sync::{Arc, Mutex},
+use std::{collections::HashMap, error::Error, sync::Arc};
+use tokio::{
+    sync::Mutex,
+    time::{self, Duration},
 };
-use tonic::{
-    transport::{Channel, Server},
-    Request, Response, Status,
-};
+use tonic::{transport::Channel, Request};
 
 use crate::{
-    dstore_proto::{
-        dnode_server::{Dnode, DnodeServer},
-        dstore_client::DstoreClient,
-        Byte, Null, PushArg,
-    },
+    dstore_proto::{dstore_client::DstoreClient, Byte, PushArg},
     DstoreError, MAX_BYTE_SIZE,
 };
 
-#[derive(Debug, Clone)]
 pub struct Node {
-    db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
-}
-
-impl Node {
-    pub fn new(db: Arc<Mutex<HashMap<Bytes, Bytes>>>) -> Self {
-        Self { db }
-    }
-}
-
-#[tonic::async_trait]
-impl Dnode for Node {
-    async fn remove(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
-        let key = args.into_inner().body;
-        match self.db.lock().unwrap().remove(&key[..]) {
-            Some(_) => Ok(Response::new(Null {})),
-            None => Err(Status::not_found(format!(
-                "{} not found!",
-                str::from_utf8(&key).unwrap()
-            ))),
-        }
-    }
-}
-
-pub struct Store {
-    db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
+    db: HashMap<Bytes, Bytes>,
     global: DstoreClient<Channel>,
     pub addr: String,
 }
 
-impl Store {
+impl Node {
     pub async fn new(
-        db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
         global_addr: String,
         local_addr: String,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Arc<Mutex<Self>>, Box<dyn Error>> {
         let mut global = DstoreClient::connect(format!("http://{}", global_addr)).await?;
         match global
             .join(Request::new(Byte {
@@ -64,29 +30,39 @@ impl Store {
             }))
             .await
         {
-            Ok(_) => Ok(Self {
-                db,
-                global,
-                addr: local_addr,
-            }),
+            Ok(_) => {
+                let node = Arc::new(Mutex::new(Self {
+                    db: HashMap::new(),
+                    global,
+                    addr: local_addr,
+                }));
+
+                let mut timer = time::interval(Duration::from_secs(5));
+                let updater = node.clone();
+
+                tokio::spawn(async move {
+                    loop {
+                        timer.tick().await;
+                        updater.lock().await.update().await;
+                    }
+                });
+
+                Ok(node)
+            }
             Err(_) => Err(Box::new(DstoreError("Couldn't join cluster".to_string()))),
         }
     }
 
-    pub async fn start_client(
-        global_addr: String,
-        local_addr: String,
-    ) -> Result<Self, Box<dyn Error>> {
-        let db = Arc::new(Mutex::new(HashMap::new()));
-        let node = Node::new(db.clone());
-        let addr = local_addr.clone().parse().unwrap();
-        tokio::spawn(async move {
-            Server::builder()
-                .add_service(DnodeServer::new(node))
-                .serve(addr)
-                .await
-        });
-        Ok(Self::new(db, global_addr, local_addr).await?)
+    pub async fn update(&mut self) {
+        while let Ok(key) = self
+            .global
+            .update(Request::new(Byte {
+                body: self.addr.as_bytes().to_vec(),
+            }))
+            .await
+        {
+            self.db.remove(&key.into_inner().body[..]);
+        }
     }
 
     pub async fn insert(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
@@ -98,15 +74,14 @@ impl Store {
     }
 
     pub async fn insert_single(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
-        let mut db = self.db.lock().unwrap();
-        if db.contains_key(&key) {
+        if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
         } else {
             let req = Byte { body: key.to_vec() };
             match self.global.contains(Request::new(req.clone())).await {
                 Ok(_) => {
                     let res = self.global.pull(Request::new(req)).await?.into_inner();
-                    db.insert(key, Bytes::from(res.body));
+                    self.db.insert(key, Bytes::from(res.body));
                     Err(Box::new(DstoreError(
                         "Local updated, Key occupied!".to_string(),
                     )))
@@ -126,7 +101,7 @@ impl Store {
                             e
                         ))))
                     } else {
-                        db.insert(key, value);
+                        self.db.insert(key, value);
                         Ok(eprintln!("Database updated"))
                     }
                 }
@@ -135,15 +110,14 @@ impl Store {
     }
 
     pub async fn insert_file(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
-        let mut db = self.db.lock().unwrap();
-        if db.contains_key(&key) {
+        if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
         } else {
             let req = Byte { body: key.to_vec() };
             match self.global.contains(Request::new(req.clone())).await {
                 Ok(_) => {
                     let res = self.global.pull(Request::new(req)).await?.into_inner();
-                    db.insert(key, Bytes::from(res.body));
+                    self.db.insert(key, Bytes::from(res.body));
                     Err(Box::new(DstoreError(
                         "Local updated, Key occupied!".to_string(),
                     )))
@@ -160,7 +134,7 @@ impl Store {
                             e
                         ))))
                     } else {
-                        db.insert(key, value);
+                        self.db.insert(key, value);
                         Ok(eprintln!("Database updated"))
                     }
                 }
@@ -169,22 +143,16 @@ impl Store {
     }
 
     pub async fn get(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
-        let db = self.db.lock().unwrap();
-        match db.get(key) {
+        match self.db.get(key) {
             Some(value) => Ok(value.clone()),
             None => {
-                drop(db);
                 let size = match self
                     .global
                     .contains(Request::new(Byte { body: key.to_vec() }))
                     .await
                 {
                     Ok(res) => res.into_inner().size,
-                    Err(e) => {
-                        return Err(Box::new(DstoreError(
-                            format!("Global: {}", e),
-                        )))
-                    }
+                    Err(e) => return Err(Box::new(DstoreError(format!("Global: {}", e)))),
                 } as usize;
                 if size > MAX_BYTE_SIZE {
                     self.get_file(key).await
@@ -196,8 +164,7 @@ impl Store {
     }
 
     pub async fn get_single(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
-        let mut db = self.db.lock().unwrap();
-        match db.get(key) {
+        match self.db.get(key) {
             Some(value) => Ok(value.clone()),
             None => {
                 let req = Request::new(Byte { body: key.to_vec() });
@@ -205,7 +172,7 @@ impl Store {
                     Ok(res) => {
                         let res = res.into_inner();
                         eprintln!("Updating Local");
-                        db.insert(key.clone(), Bytes::from(res.body.clone()));
+                        self.db.insert(key.clone(), Bytes::from(res.body.clone()));
                         Ok(Bytes::from(res.body))
                     }
                     Err(_) => Err(Box::new(DstoreError(
@@ -217,8 +184,7 @@ impl Store {
     }
 
     pub async fn get_file(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
-        let mut db = self.db.lock().unwrap();
-        match db.get(key) {
+        match self.db.get(key) {
             Some(value) => Ok(value.clone()),
             None => {
                 let req = Request::new(Byte { body: key.to_vec() });
@@ -229,7 +195,7 @@ impl Store {
                     let mut frame = frame?;
                     value.append(&mut frame.body);
                 }
-                db.insert(key.clone(), Bytes::from(value.clone()));
+                self.db.insert(key.clone(), Bytes::from(value.clone()));
                 Ok(Bytes::from(value))
             }
         }
@@ -237,14 +203,13 @@ impl Store {
 
     pub async fn remove(&mut self, key: &Bytes) -> Result<(), Box<dyn Error>> {
         let mut err = vec![];
-        let db = self.db.lock().unwrap();
         let req = Request::new(Byte { body: key.to_vec() });
         match self.global.remove(req).await {
             Ok(_) => eprintln!("Global mapping removed!"),
             Err(_) => err.push("global"),
         }
 
-        match db.contains_key(key) {
+        match self.db.contains_key(key) {
             true => eprintln!("Local mapping removed!"),
             false => err.push("local"),
         }

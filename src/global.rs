@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use futures_util::StreamExt;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     net::SocketAddr,
     str,
     sync::{Arc, Mutex},
@@ -11,7 +11,6 @@ use tonic::{transport::Server, Request, Response, Status};
 
 use crate::{
     dstore_proto::{
-        dnode_client::DnodeClient,
         dstore_server::{Dstore, DstoreServer},
         Byte, Null, PushArg, Size,
     },
@@ -20,14 +19,14 @@ use crate::{
 
 pub struct Store {
     db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
-    nodes: Arc<Mutex<Vec<Bytes>>>,
+    nodes: Arc<Mutex<HashMap<Bytes, Arc<Mutex<VecDeque<Bytes>>>>>>,
 }
 
 impl Store {
     fn new() -> Self {
         Self {
             db: Arc::new(Mutex::new(HashMap::new())),
-            nodes: Arc::new(Mutex::new(vec![])),
+            nodes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -45,7 +44,10 @@ impl Store {
 impl Dstore for Store {
     async fn join(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
         let mut nodes = self.nodes.lock().unwrap();
-        nodes.push(Bytes::from(args.into_inner().body));
+        nodes.insert(
+            Bytes::from(args.into_inner().body),
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
         Ok(Response::new(Null {}))
     }
 
@@ -142,16 +144,9 @@ impl Dstore for Store {
     async fn remove(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
         let key = args.into_inner().body;
 
-        // Notify all nodes to delete copy
-        let nodes = self.nodes.lock().unwrap().clone();
-        for addr in nodes {
-            let addr = format!("http://{}", str::from_utf8(&addr).unwrap());
-            DnodeClient::connect(addr.clone())
-                .await
-                .unwrap()
-                .remove(Request::new(Byte { body: key.clone() }))
-                .await?;
-            eprintln!("Deleting from node: {}", addr);
+        // Push into a queue per node, all update notifications to invalidate cache
+        for addr in self.nodes.lock().unwrap().values() {
+            addr.lock().unwrap().push_back(Bytes::from(key.clone()));
         }
 
         match self.db.lock().unwrap().remove(&key[..]) {
@@ -160,6 +155,25 @@ impl Dstore for Store {
                 "Couldn't remove {}",
                 str::from_utf8(&key).unwrap()
             ))),
+        }
+    }
+
+    async fn update(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
+        let args = args.into_inner().body;
+        match self
+            .nodes
+            .lock()
+            .unwrap()
+            .get(&args[..])
+            .unwrap()
+            .lock()
+            .unwrap()
+            .pop_front()
+        {
+            Some(keys) => Ok(Response::new(Byte {
+                body: keys.to_vec(),
+            })),
+            None => Err(Status::not_found("")),
         }
     }
 }
