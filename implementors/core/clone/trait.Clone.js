@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["dstore"] = [{"text":"impl Clone for KeyValue","synthetic":false,"types":[]},{"text":"impl Clone for Null","synthetic":false,"types":[]},{"text":"impl Clone for Byte","synthetic":false,"types":[]},{"text":"impl Clone for Size","synthetic":false,"types":[]},{"text":"impl&lt;T:&nbsp;Clone&gt; Clone for DstoreClient&lt;T&gt;","synthetic":false,"types":[]},{"text":"impl&lt;T:&nbsp;Dstore&gt; Clone for DstoreServer&lt;T&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

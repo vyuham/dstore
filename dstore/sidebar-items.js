@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["MAX_BYTE_SIZE","Maximum size of contents in a gRPC packet as per standard"]],"mod":[["dstore_proto",""],["global",""],["local",""]],"struct":[["DstoreError","Error type for Dstore, contains message as string"]]});

@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["dstore"] = [{"text":"impl Default for KeyValue","synthetic":false,"types":[]},{"text":"impl Default for Null","synthetic":false,"types":[]},{"text":"impl Default for Byte","synthetic":false,"types":[]},{"text":"impl Default for Size","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

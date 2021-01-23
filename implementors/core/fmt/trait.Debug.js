@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["dstore"] = [{"text":"impl Debug for DstoreError","synthetic":false,"types":[]},{"text":"impl Debug for KeyValue","synthetic":false,"types":[]},{"text":"impl Debug for Null","synthetic":false,"types":[]},{"text":"impl Debug for Byte","synthetic":false,"types":[]},{"text":"impl Debug for Size","synthetic":false,"types":[]},{"text":"impl&lt;T&gt; Debug for DstoreClient&lt;T&gt;","synthetic":false,"types":[]},{"text":"impl&lt;T:&nbsp;Debug + Dstore&gt; Debug for DstoreServer&lt;T&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
