@@ -11,6 +11,7 @@ Built as an in-memory datastore with dual layer architecture that enables the st
 The two layer architecture consists of an in-memory datastore on each node called **'Local'**, which stores copies of data-objects as Key-Value pairs where the Key acts as a UID and enables the user to have a single copy of the data on each node, thus decreasing network access to access the same.
 
 ## Demo
+To demo the working of Dstore, we have created a CLI based Key-Value database that isn't fully featured, to try it out, follow the steps given below:
 1. Download the code:
 ```bash
 git clone https://github.com/vyuham/dstore
@@ -34,9 +35,10 @@ This is an experimental database, do contribute to further developments at https
 Use `.exit` to exit the repl
 db > 
 ```
-Now you are ready to work with dstore :D
+Now you know some of the workings of dstore :D
 
-## Commands
+### REPL Commands
+The demo's REPL uses commands similar to [KVDB](https://github.com/de-sh/vyuham), you may use the following to interact with it:
 - **SET:** The user/process can store data on the system using the `SET`/`PUT` command word, as shown below:
 ```
 db> SET key value
@@ -70,7 +72,7 @@ global: hi -> hello     (Updating Local)
 ```
 db> DEL key
 ```
-This might only remove the key-value mapping from within the current 'Local' and 'Global' while other 'Local's may still maintain a copy, discussion on how to reflect changes across all 'Local's needs to take place. To test these claims, please change the port number in 'example/local.rs` and try opening a few 'Local' clients, with a special port for each and do different order of tasks relating to deleting key-value pairs. 
+This might only remove the key-value mapping from within the current 'Local' and 'Global' while other 'Local's may still maintain a copy as currently the `REPL` thread blocks the `update()` thread leading to a possible lack of support for invalidating KEYs that aren't unique, at all times. Discussion on how to reflect changes across all 'Local's needs to take place. To test these claims, please change the port number of `local_addr` in 'example/local.rs` and try opening a few 'Local' clients, with a unique port assigned to each and do different order of tasks relating to deleting key-value pairs.
 
 ## Contribution
 Please consider opening an issue to discuss possible feature additions and use cases for the framework. We would love to review genuine PRs to fix bugs, solve issues and add feature, so do consider opening some!

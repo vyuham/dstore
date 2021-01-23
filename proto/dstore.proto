@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dstore;
 
-message PushArg {
+message KeyValue {
     bytes key = 1;
     bytes value = 2;
 }
@@ -18,7 +18,7 @@ message Size {
 }
 
 service Dstore {
-    rpc Push(PushArg) returns (Null);
+    rpc Push(KeyValue) returns (Null);
     rpc PushFile(stream Byte) returns (Null);
     rpc Pull(Byte) returns (Byte);
     rpc PullFile(Byte) returns (stream Byte);

@@ -12,24 +12,29 @@ use tonic::{transport::Server, Request, Response, Status};
 use crate::{
     dstore_proto::{
         dstore_server::{Dstore, DstoreServer},
-        Byte, Null, PushArg, Size,
+        Byte, KeyValue, Null, Size,
     },
     MAX_BYTE_SIZE,
 };
 
-pub struct Store {
+/// Strore reference counted pointers to HashMaps maintaining state of Global
+pub struct Global {
+    /// In-memory database mapping KEY -> VALUE
     db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
-    nodes: Arc<Mutex<HashMap<Bytes, Arc<Mutex<VecDeque<Bytes>>>>>>,
+    /// Maps Local UIDs to a KEY invalidation queue
+    cluster: Arc<Mutex<HashMap<Bytes, Arc<Mutex<VecDeque<Bytes>>>>>>,
 }
 
-impl Store {
+impl Global {
+    /// Generate initial, empty state of Global
     fn new() -> Self {
         Self {
             db: Arc::new(Mutex::new(HashMap::new())),
-            nodes: Arc::new(Mutex::new(HashMap::new())),
+            cluster: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    /// Initialiaze server and start Global service on `addr`
     pub async fn start_server(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
         Server::builder()
             .add_service(DstoreServer::new(Self::new()))
@@ -41,28 +46,29 @@ impl Store {
 }
 
 #[tonic::async_trait]
-impl Dstore for Store {
+impl Dstore for Global {
+    /// RPC to add new Local to cluster, with empty invalidation queue
     async fn join(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
-        let mut nodes = self.nodes.lock().unwrap();
-        nodes.insert(
+        self.cluster.lock().unwrap().insert(
             Bytes::from(args.into_inner().body),
             Arc::new(Mutex::new(VecDeque::new())),
         );
+
         Ok(Response::new(Null {}))
     }
 
+    /// Check if a certain KEY exists on Global, if yes return size of associated VALUE
     async fn contains(&self, args: Request<Byte>) -> Result<Response<Size>, Status> {
-        let db = self.db.lock().unwrap();
-        if let Some(value) = db.get(&args.into_inner().body[..]) {
-            Ok(Response::new(Size {
+        match self.db.lock().unwrap().get(&args.into_inner().body[..]) {
+            Some(value) => Ok(Response::new(Size {
                 size: value.len() as i32,
-            }))
-        } else {
-            Err(Status::not_found("Value doesn't exist"))
+            })),
+            None => Err(Status::not_found("Value doesn't exist")),
         }
     }
 
-    async fn push(&self, args: Request<PushArg>) -> Result<Response<Null>, Status> {
+    /// RPC that maps KEY to VALUE, if it doesn't already exist on Global
+    async fn push(&self, args: Request<KeyValue>) -> Result<Response<Null>, Status> {
         let mut db = self.db.lock().unwrap();
         let args = args.into_inner();
         match db.contains_key(&args.key[..]) {
@@ -77,12 +83,14 @@ impl Dstore for Store {
         }
     }
 
+    /// RPC that maps KEY to streamed VALUE, provided it doesn't already exist on Global
     async fn push_file(
         &self,
         args: Request<tonic::Streaming<Byte>>,
     ) -> Result<Response<Null>, Status> {
+        // Logic to recieve streamed VALUES
         let mut stream = args.into_inner();
-        let mut i: usize = 0;
+        let mut i = 0;
         let (mut key, mut buf) = (vec![], vec![]);
         while let Some(byte) = stream.next().await {
             let byte = byte?;
@@ -98,9 +106,11 @@ impl Dstore for Store {
             .lock()
             .unwrap()
             .insert(Bytes::from(key), Bytes::from(buf));
+
         Ok(Response::new(Null {}))
     }
 
+    /// RPC that returns VALUE associated with KEY, provided it exist on Global
     async fn pull(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
         let db = self.db.lock().unwrap();
         let args = args.into_inner();
@@ -113,15 +123,19 @@ impl Dstore for Store {
         }
     }
 
+    /// Type to allow streaming og VALUE via RPC
     type PullFileStream = mpsc::Receiver<Result<Byte, Status>>;
 
+    /// RPC that streams VALUE associated with KEY, if it exist on Global
     async fn pull_file(
         &self,
         args: Request<Byte>,
     ) -> Result<Response<Self::PullFileStream>, Status> {
+        // Create a double ended channel for transporting VALUE packets processed within thread
         let (mut tx, rx) = mpsc::channel(4);
         let db = self.db.clone();
 
+        // Spawn thread to manage partitioning of a large VALUE into packet frames
         tokio::spawn(async move {
             let val = db
                 .lock()
@@ -129,6 +143,7 @@ impl Dstore for Store {
                 .get(&args.into_inner().body[..])
                 .unwrap()
                 .to_vec();
+            // Size each frame upto MAX_BYTE_SIZE and encapsulate in response packet
             for i in 0..val.len() / MAX_BYTE_SIZE {
                 tx.send(Ok(Byte {
                     body: val[i * MAX_BYTE_SIZE..(i + 1) * MAX_BYTE_SIZE].to_vec(),
@@ -141,14 +156,16 @@ impl Dstore for Store {
         Ok(Response::new(rx))
     }
 
+    /// RPC to remove KEY mappings on Global and add KEY to invalidate queues of Locals in cluster
     async fn remove(&self, args: Request<Byte>) -> Result<Response<Null>, Status> {
         let key = args.into_inner().body;
 
-        // Push into a queue per node, all update notifications to invalidate cache
-        for addr in self.nodes.lock().unwrap().values() {
+        // Push KEY into invalidate queue of all node
+        for addr in self.cluster.lock().unwrap().values() {
             addr.lock().unwrap().push_back(Bytes::from(key.clone()));
         }
 
+        // Remove KEY mapping from Global
         match self.db.lock().unwrap().remove(&key[..]) {
             Some(_) => Ok(Response::new(Null {})),
             None => Err(Status::not_found(format!(
@@ -158,10 +175,12 @@ impl Dstore for Store {
         }
     }
 
+    /// RPC to help Local invalidate cached VALUES
     async fn update(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
+        // Extract and return a KEY from invalidate queue associated with requesting Local
         let args = args.into_inner().body;
         match self
-            .nodes
+            .cluster
             .lock()
             .unwrap()
             .get(&args[..])
