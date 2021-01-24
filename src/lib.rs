@@ -12,7 +12,7 @@ impl fmt::Display for DstoreError {
 
 impl Error for DstoreError {}
 
-pub mod dstore_proto {
+mod dstore_proto {
     tonic::include_proto!("dstore");
 }
 

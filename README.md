@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/dstore.png" width="350px"/></p>
 
-dstore is a distributed storage framework inspired from the [FAASM project](https://github.com/faasm).
+dstore is a partially distributed storage framework inspired from the [FAASM project](https://github.com/faasm).
 
 ## Database
 Built as an in-memory datastore with dual layer architecture that enables the storage of Key-Value pairs on nodes in coherence with a single **'Global'** datastore for synchronization purposes. Keys are UIDs and should technically only be associated with **a** Value for eternity. Hopefully that will be implemented with the hash of said Value being used for the same.
