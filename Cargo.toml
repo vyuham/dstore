@@ -1,6 +1,6 @@
 [package]
 name = "dstore"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Devdutt Shenoi <devdutt@outlook.in>"]
 license = "Apache-2.0"
 description = "A partially distributed storage framework, using the two-layer architecture."

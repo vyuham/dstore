@@ -1,4 +1,4 @@
-use dstore::global::Global;
+use dstore::Global;
 use std::error::Error;
 
 /// Start Global server on defined IP:PORT address

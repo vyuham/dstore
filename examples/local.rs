@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use dstore::local::Local;
+use dstore::Local;
 use std::{
     error::Error,
     io::{self, stdin, BufRead, Write},

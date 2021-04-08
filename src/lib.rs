@@ -19,5 +19,8 @@ mod dstore_proto {
 /// Maximum size of contents in a gRPC packet as per standard
 pub const MAX_BYTE_SIZE: usize = 4_194_304;
 
-pub mod global;
-pub mod local;
+mod global;
+mod local;
+
+pub use global::Global;
+pub use local::Local;
