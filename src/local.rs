@@ -79,7 +79,7 @@ impl Local {
 
     /// Insert VALUEs onto Global in either a single packet or as a stream as per it's size
     pub async fn insert(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
-        if value.len() > MAX_BYTE_SIZE {
+        if value.len() < MAX_BYTE_SIZE {
             self.insert_single(key, value).await
         } else {
             self.insert_file(key, value).await
@@ -195,10 +195,10 @@ impl Local {
                     Err(e) => return Err(Box::new(DstoreError(format!("Global: {}", e)))),
                 } as usize;
                 // If VALUE sized larger than single packet transportable, use get_file(), else use get_single()
-                if size > MAX_BYTE_SIZE {
-                    self.get_file(key).await
-                } else {
+                if size < MAX_BYTE_SIZE {
                     self.get_single(key).await
+                } else {
+                    self.get_file(key).await
                 }
             }
         }
