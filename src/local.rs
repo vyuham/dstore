@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures_util::{stream, StreamExt};
+use futures::{stream, StreamExt};
 use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::{
     sync::Mutex,

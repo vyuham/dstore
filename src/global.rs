@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures_util::StreamExt;
+use futures::StreamExt;
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::{
@@ -124,7 +125,7 @@ impl Dstore for Global {
     }
 
     /// Type to allow streaming og VALUE via RPC
-    type PullFileStream = mpsc::Receiver<Result<Byte, Status>>;
+    type PullFileStream = ReceiverStream<Result<Byte, Status>>;
 
     /// RPC that streams VALUE associated with KEY, if it exist on Global
     async fn pull_file(
@@ -132,7 +133,7 @@ impl Dstore for Global {
         args: Request<Byte>,
     ) -> Result<Response<Self::PullFileStream>, Status> {
         // Create a double ended channel for transporting VALUE packets processed within thread
-        let (mut tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(4);
         let db = self.db.clone();
 
         // Spawn thread to manage partitioning of a large VALUE into packet frames
@@ -153,7 +154,7 @@ impl Dstore for Global {
             }
         });
 
-        Ok(Response::new(rx))
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     /// RPC to remove KEY mappings on Global and add KEY to invalidate queues of Locals in cluster
@@ -196,3 +197,4 @@ impl Dstore for Global {
         }
     }
 }
+

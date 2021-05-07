@@ -19,19 +19,21 @@ impl REPL {
     }
 
     /// Runs the Command Line Interface REPL
-    async fn run(&mut self) {
+    async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         print!("dstore v0.1.0 (uid: {})\nThis is an experimental database, do contribute to further developments at https://github.com/vyuham/dstore. \nUse `.exit` to exit the repl\ndb > ", self.local.lock().await.addr);
         io::stdout().flush().expect("Error");
         for cmd in stdin().lock().lines() {
             match cmd {
                 Ok(cmd) => {
-                    self.parse_input(cmd.trim().to_string()).await;
+                    self.parse_input(cmd.trim().to_string()).await?;
                 }
                 Err(_) => eprint!("Error in reading command, exiting REPL."),
             }
             print!("db > ");
             io::stdout().flush().expect("Error");
         }
+
+        Ok(())
     }
 
     /// Convert REPL input into actionable commands
@@ -97,12 +99,12 @@ impl REPL {
 async fn main() -> Result<(), Box<dyn Error>> {
     // Create a Local with a certain UID, connected to Global on defined address.
     // Store reference counted pointer for future use
-    let global_addr = "127.0.0.1:50051".to_string();
-    let local_addr = "127.0.0.1:50052".to_string(); // UID for Local
+    let global_addr = "[::1]:50051".to_string();
+    let local_addr = "[::1]:50052".to_string(); // UID for Local
     let local_store = Local::new(global_addr, local_addr).await?;
 
     // Create REPL interface with reference counted pointer to Local
-    REPL::new(local_store).await.run().await;
+    REPL::new(local_store).await.run().await?;
 
     Ok(())
 }

@@ -8,12 +8,12 @@ homepage = "https://vyuham.github.io/dstore"
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2", features = ["macros", "sync", "stream", "time"] }
-futures-core = "0.3"
-futures-util = "0.3"
+tokio = { version = "1.5", features = ["full"] }
+tokio-stream = { version =  "0.1", features = ["net"] }
+futures = { version = "0.3", default-features = false, features = ["alloc"] }
 bytes = "1"
-tonic = "0.3"
-prost = "0.6"
+tonic = "0.4"
+prost = "0.7"
 
 [build-dependencies]
-tonic-build = "0.3.0"
+tonic-build = "0.4"
