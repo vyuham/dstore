@@ -98,10 +98,8 @@ impl REPL {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Create a Local with a certain UID, connected to Global on defined address.
-    // Store reference counted pointer for future use
-    let global_addr = "[::1]:50051".to_string();
-    let local_addr = "[::1]:50052".to_string(); // UID for Local
-    let local_store = Local::new(global_addr, local_addr).await?;
+    // Store reference counted pointer for future use. local_addr is used as UID for Local
+    let local_store = Local::new("[::1]:50051", "[::1]:50052").await?;
 
     // Create REPL interface with reference counted pointer to Local
     REPL::new(local_store).await.run().await?;

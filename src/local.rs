@@ -25,8 +25,8 @@ pub struct Local {
 impl Local {
     /// Generate reference counted pointer to datastructure maintaining Local state
     pub async fn new(
-        global_addr: String,
-        addr: String,
+        global_addr: &str,
+        local_addr: &str,
     ) -> Result<Arc<Mutex<Self>>, Box<dyn Error>> {
         // Client connection to Global server
         let mut global = DstoreClient::connect(format!("http://{}", global_addr)).await?;
@@ -34,7 +34,7 @@ impl Local {
         // Check if Local is allowed to join Global's cluster
         match global
             .join(Request::new(Byte {
-                body: addr.as_bytes().to_vec(),
+                body: local_addr.as_bytes().to_vec(),
             }))
             .await
         {
@@ -43,7 +43,7 @@ impl Local {
                 let node = Arc::new(Mutex::new(Self {
                     db: HashMap::new(),
                     global,
-                    addr,
+                    addr: local_addr.to_string(),
                 }));
 
                 // Start a timer at intervals of 5 seconds, create clone of Local pointer
