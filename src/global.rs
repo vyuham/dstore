@@ -21,6 +21,8 @@ use crate::{
 pub struct Global {
     /// In-memory database mapping KEY -> VALUE
     db: Arc<Mutex<HashMap<Bytes, Bytes>>>,
+    /// A mapping of queues and their names
+    queues: Arc<Mutex<HashMap<Bytes, Mutex<VecDeque<Bytes>>>>>,
     /// Maps Local UIDs to a KEY invalidation queue
     cluster: Arc<Mutex<HashMap<Bytes, Mutex<VecDeque<Bytes>>>>>,
 }
@@ -30,6 +32,7 @@ impl Global {
     fn new() -> Self {
         Self {
             db: Arc::new(Mutex::new(HashMap::new())),
+            queues: Arc::new(Mutex::new(HashMap::new())),
             cluster: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -168,6 +171,38 @@ impl Dstore for Global {
                 "Couldn't remove {}",
                 str::from_utf8(&key).unwrap()
             ))),
+        }
+    }
+
+    /// RPC to push_back VALUEs onto a queue corresponding to a given KEY
+    async fn en_queue(&self, args: Request<KeyValue>) -> Result<Response<Null>, Status> {
+        let KeyValue { key, value } = args.into_inner();
+        match self.queues.lock().await.get(&key[..]) {
+            Some(queue) => queue.lock().await.push_back(Bytes::from(value)),
+            None => {
+                let mut queue = VecDeque::new();
+                queue.push_back(Bytes::from(value));
+                self.queues
+                    .lock()
+                    .await
+                    .insert(Bytes::from(key), Mutex::new(queue));
+            }
+        }
+
+        Ok(Response::new(Null {}))
+    }
+
+    /// RPC to pop_front VALUEs from a queue corresponding to a given KEY
+    async fn de_queue(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
+        let Byte { body } = args.into_inner();
+        match self.queues.lock().await.get(&body[..]) {
+            Some(queue) => match queue.lock().await.pop_front() {
+                Some(value) => Ok(Response::new(Byte {
+                    body: value.to_vec(),
+                })),
+                None => Err(Status::not_found("")),
+            },
+            None => Err(Status::not_found("")),
         }
     }
 

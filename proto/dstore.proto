@@ -26,5 +26,8 @@ service Dstore {
     rpc Remove(Byte) returns (Null);
     rpc Update(Byte) returns (Byte);
 
+    rpc EnQueue(KeyValue) returns (Null);
+    rpc DeQueue(Byte) returns (Byte);
+
     rpc Join(Byte) returns (Null);
 }

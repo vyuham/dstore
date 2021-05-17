@@ -21,6 +21,8 @@ pub const MAX_BYTE_SIZE: usize = 4_194_304;
 
 mod global;
 mod local;
+mod queue;
 
 pub use global::Global;
 pub use local::Local;
+pub use queue::Queue;
