@@ -78,7 +78,7 @@ impl Local {
     }
 
     /// Insert VALUEs onto Global in either a single packet or as a stream as per it's size
-    pub async fn insert(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
+    pub async fn insert(&mut self, key: Bytes, value: Bytes) -> Result<&str, Box<dyn Error>> {
         if value.len() < MAX_BYTE_SIZE {
             self.insert_single(key, value).await
         } else {
@@ -87,7 +87,7 @@ impl Local {
     }
 
     /// Insert a single packet sized KEY->VALUE mapping onto Global and store in cache
-    pub async fn insert_single(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
+    pub async fn insert_single(&mut self, key: Bytes, value: Bytes) -> Result<&str, Box<dyn Error>> {
         // Check if LOCAL already contains KEY
         if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
@@ -122,7 +122,7 @@ impl Local {
                     } else {
                         // If Global updated successfully, add mapping to cache
                         self.db.insert(key, value);
-                        Ok(eprintln!("Database updated"))
+                        Ok("Database updated")
                     }
                 }
             }
@@ -130,7 +130,7 @@ impl Local {
     }
 
     /// Insert large KEY -> VALUE mappings on Global and store in cache
-    pub async fn insert_file(&mut self, key: Bytes, value: Bytes) -> Result<(), Box<dyn Error>> {
+    pub async fn insert_file(&mut self, key: Bytes, value: Bytes) -> Result<&str, Box<dyn Error>> {
         // Check if LOCAL already contains KEY
         if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
@@ -167,7 +167,7 @@ impl Local {
                     {
                         Ok(_) => {
                             self.db.insert(key, value);
-                            Ok(eprintln!("Database updated"))
+                            Ok("Database updated")
                         }
                         Err(e) => Err(Box::new(DstoreError(format!(
                             "Couldn't update Global: {}",
@@ -180,10 +180,10 @@ impl Local {
     }
 
     /// Get VALUE associated with KEY from system
-    pub async fn get(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
+    pub async fn get(&mut self, key: &Bytes) -> Result<(&str, Bytes), Box<dyn Error>> {
         // Check cache for KEY, if it exists, return associated VALUE
         match self.db.get(key) {
-            Some(value) => Ok(value.clone()),
+            Some(value) => Ok(("", value.clone())),
             None => {
                 // If KEY in Global, extract VALUE byte size
                 let size = match self
@@ -205,19 +205,18 @@ impl Local {
     }
 
     /// Get VALUES that can fit in a single packet
-    pub async fn get_single(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
+    pub async fn get_single(&mut self, key: &Bytes) -> Result<(&str, Bytes), Box<dyn Error>> {
         // Check if KEY is present in cache, else consult Global
         match self.db.get(key) {
-            Some(value) => Ok(value.clone()),
+            Some(value) => Ok(("", value.clone())),
             None => {
                 // Send pull request to Global, update cache if successful
                 let req = Request::new(Byte { body: key.to_vec() });
                 match self.global.pull(req).await {
                     Ok(res) => {
                         let res = res.into_inner();
-                        eprintln!("Updating Local");
                         self.db.insert(key.clone(), Bytes::from(res.body.clone()));
-                        Ok(Bytes::from(res.body))
+                        Ok(("Updated Local", Bytes::from(res.body)))
                     }
                     Err(_) => Err(Box::new(DstoreError(
                         "Key-Value mapping doesn't exist".to_string(),
@@ -228,46 +227,43 @@ impl Local {
     }
 
     /// Get VALUES that don't fit in a single packet
-    pub async fn get_file(&mut self, key: &Bytes) -> Result<Bytes, Box<dyn Error>> {
+    pub async fn get_file(&mut self, key: &Bytes) -> Result<(&str, Bytes), Box<dyn Error>> {
         // Check if KEY is present in cache, else consult Global
         match self.db.get(key) {
-            Some(value) => Ok(value.clone()),
+            Some(value) => Ok(("", value.clone())),
             None => {
                 // Send pull_file request to Global, update cache with streamed response
                 let req = Request::new(Byte { body: key.to_vec() });
                 let mut stream = self.global.pull_file(req).await.unwrap().into_inner();
-                eprintln!("Updating Local");
                 let mut value = vec![];
                 while let Some(frame) = stream.next().await {
                     let mut frame = frame?;
                     value.append(&mut frame.body);
                 }
                 self.db.insert(key.clone(), Bytes::from(value.clone()));
-                Ok(Bytes::from(value))
+                Ok(("Updated Local", Bytes::from(value)))
             }
         }
     }
 
     /// Remove a KEY from the system
-    pub async fn remove(&mut self, key: &Bytes) -> Result<(), Box<dyn Error>> {
+    pub async fn remove(&mut self, key: &Bytes) -> Result<&str, Box<dyn Error>> {
         // Store erroring locations to write error message
         let mut err = vec![];
         // Send remove request to Global
         let req = Request::new(Byte { body: key.to_vec() });
-        match self.global.remove(req).await {
-            Ok(_) => eprintln!("Global mapping removed!"),
-            Err(_) => err.push("global"),
+        if let Err(_) = self.global.remove(req).await {
+            err.push("global");
         }
 
         // Check if mapping exists locally, let `update()` remove KEY if it does
-        match self.db.contains_key(key) {
-            true => eprintln!("Local mapping will soon be removed!"),
-            false => err.push("local"),
+        if !self.db.contains_key(key) {
+            err.push("local");
         }
 
         // Return error message based on contents of err
         match err.len() {
-            0 => Ok(()),
+            0 => Ok("Mappings removed"),
             _ => Err(Box::new(DstoreError(format!(
                 "Key missing from {}!",
                 err.join(" and ")

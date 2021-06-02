@@ -59,8 +59,9 @@ impl REPL {
                 "set" | "put" | "insert" | "in" | "i" => {
                     let key = Bytes::from(words[1].clone());
                     let value = Bytes::from(words[2..].join(" "));
-                    if let Err(e) = self.local.lock().await.insert(key, value).await {
-                        eprintln!("{}", e);
+                    match self.local.lock().await.insert(key, value).await {
+                        Ok(m) => eprintln!("{}", m),
+                        Err(e) => eprintln!("{}", e),
                     }
 
                     Ok(())
@@ -68,7 +69,10 @@ impl REPL {
                 "get" | "select" | "output" | "out" | "o" => {
                     let key = Bytes::from(words[1].clone());
                     match self.local.lock().await.get(&key).await {
-                        Ok(value) => {
+                        Ok((msg, value)) => {
+                            if msg != "" {
+                                eprintln!("{}", msg);
+                            }
                             println!(
                                 "db: {} -> {}",
                                 String::from_utf8(key.to_vec())?,
@@ -83,8 +87,9 @@ impl REPL {
                 "del" | "delete" | "rem" | "remove" | "rm" | "d" => {
                     // Removes only from local
                     let key = Bytes::from(words[1].clone());
-                    if let Err(e) = self.local.lock().await.remove(&key).await {
-                        eprintln!("{}", e);
+                    match self.local.lock().await.remove(&key).await {
+                        Ok(m) => eprintln!("{}", m),
+                        Err(e) => eprintln!("{}", e),
                     }
 
                     Ok(())
