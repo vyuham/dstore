@@ -177,15 +177,13 @@ impl Dstore for Global {
     /// RPC to push_back VALUEs onto a queue corresponding to a given KEY
     async fn en_queue(&self, args: Request<KeyValue>) -> Result<Response<Null>, Status> {
         let KeyValue { key, value } = args.into_inner();
-        match self.queues.lock().await.get(&key[..]) {
+        let mut queues = self.queues.lock().await;
+        match queues.get(&key[..]) {
             Some(queue) => queue.lock().await.push_back(Bytes::from(value)),
             None => {
                 let mut queue = VecDeque::new();
                 queue.push_back(Bytes::from(value));
-                self.queues
-                    .lock()
-                    .await
-                    .insert(Bytes::from(key), Mutex::new(queue));
+                queues.insert(Bytes::from(key), Mutex::new(queue));
             }
         }
 
@@ -194,8 +192,8 @@ impl Dstore for Global {
 
     /// RPC to pop_front VALUEs from a queue corresponding to a given KEY
     async fn de_queue(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
-        let Byte { body } = args.into_inner();
-        match self.queues.lock().await.get(&body[..]) {
+        let Byte { body: key } = args.into_inner();
+        match self.queues.lock().await.get(&key[..]) {
             Some(queue) => match queue.lock().await.pop_front() {
                 Some(value) => Ok(Response::new(Byte {
                     body: value.to_vec(),
