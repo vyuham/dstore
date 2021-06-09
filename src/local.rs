@@ -87,7 +87,11 @@ impl Local {
     }
 
     /// Insert a single packet sized KEY->VALUE mapping onto Global and store in cache
-    pub async fn insert_single(&mut self, key: Bytes, value: Bytes) -> Result<&str, Box<dyn Error>> {
+    pub async fn insert_single(
+        &mut self,
+        key: Bytes,
+        value: Bytes,
+    ) -> Result<&str, Box<dyn Error>> {
         // Check if LOCAL already contains KEY
         if self.db.contains_key(&key) {
             return Err(Box::new(DstoreError("Key occupied!".to_string())));
