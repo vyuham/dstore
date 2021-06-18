@@ -2,7 +2,7 @@ use dstore::Local;
 use bytes::Bytes;
 
 #[tokio::test]
-async fn push_to_global() {
+async fn push_to_global_test() {
     // intialize global and local
     let global_addr= "[::1]:50051";
     let local_addr= "[::1]:50052";
