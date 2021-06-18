@@ -123,7 +123,7 @@ impl Dstore for Global {
         }
     }
 
-    /// Type to allow streaming og VALUE via RPC
+    /// Type to allow streaming of VALUE via RPC
     type PullFileStream = ReceiverStream<Result<Byte, Status>>;
 
     /// RPC that streams VALUE associated with KEY, if it exist on Global
