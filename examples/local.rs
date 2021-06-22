@@ -106,8 +106,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Store reference counted pointer for future use. local_addr is used as UID for Local
     let local_store = Local::new("[::1]:50051", "[::1]:50052").await?;
 
+    for i in 0..14 {
+        let (_, v) = local_store
+            .lock()
+            .await
+            .get(&Bytes::from(vec![0, i as u8]))
+            .await?;
+        println!("{}: {:?}", i, v.to_vec());
+    }
     // Create REPL interface with reference counted pointer to Local
-    REPL::new(local_store).await.run().await?;
+    // REPL::new(local_store).await.run().await?;
 
     Ok(())
 }

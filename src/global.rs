@@ -46,6 +46,18 @@ impl Global {
 
         Ok(())
     }
+
+    /// Wrapper for HashMap insert(), an abstraction for simplifying memory access
+    pub async fn insert(&self, key: &Vec<u8>, value: &Vec<u8>) -> Result<(), String> {
+        let mut db = self.db.lock().await;
+        match db.contains_key(key) {
+            true => Err(format!("{} already in use.", str::from_utf8(key).unwrap())),
+            false => {
+                db.insert(Bytes::from(key.clone()), Bytes::from(value.clone()));
+                Ok(())
+            }
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -72,17 +84,10 @@ impl Dstore for Global {
 
     /// RPC that maps KEY to VALUE, if it doesn't already exist on Global
     async fn push(&self, args: Request<KeyValue>) -> Result<Response<Null>, Status> {
-        let mut db = self.db.lock().await;
         let KeyValue { key, value } = args.into_inner();
-        match db.contains_key(&key[..]) {
-            true => Err(Status::already_exists(format!(
-                "{} already in use.",
-                str::from_utf8(&key).unwrap()
-            ))),
-            false => {
-                db.insert(Bytes::from(key), Bytes::from(value));
-                Ok(Response::new(Null {}))
-            }
+        match self.insert(&key, &value).await {
+            Ok(_) => Ok(Response::new(Null {})),
+            Err(e) => Err(Status::already_exists(e)),
         }
     }
 
@@ -94,23 +99,21 @@ impl Dstore for Global {
         // Logic to recieve streamed VALUES
         let mut stream = args.into_inner();
         let mut i = 0;
-        let (mut key, mut buf) = (vec![], vec![]);
+        let (mut key, mut val_buf) = (vec![], vec![]);
         while let Some(byte) = stream.next().await {
             let Byte { body } = byte?;
             if i == 0 {
                 key.append(&mut body.clone());
             } else {
-                buf.append(&mut body.clone());
+                val_buf.append(&mut body.clone());
             }
             i += 1;
         }
 
-        self.db
-            .lock()
-            .await
-            .insert(Bytes::from(key), Bytes::from(buf));
-
-        Ok(Response::new(Null {}))
+        match self.insert(&key, &val_buf).await {
+            Ok(_) => Ok(Response::new(Null {})),
+            Err(e) => Err(Status::already_exists(e)),
+        }
     }
 
     /// RPC that returns VALUE associated with KEY, provided it exist on Global
@@ -223,5 +226,20 @@ impl Dstore for Global {
             })),
             None => Err(Status::not_found("")),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    async fn insert_single_test() {
+        let global = Global::new();
+        let (key, expected) = (b"Hello".to_vec(), b"World".to_vec());
+        global.insert(&key, &expected).await;
+        let value = global.get(&key).await;
+
+        assert_eq!(value, expected);
     }
 }
