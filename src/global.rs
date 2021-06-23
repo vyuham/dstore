@@ -50,12 +50,22 @@ impl Global {
     /// Wrapper for HashMap insert(), an abstraction for simplifying memory access
     pub async fn insert(&self, key: &Vec<u8>, value: &Vec<u8>) -> Result<(), String> {
         let mut db = self.db.lock().await;
-        match db.contains_key(key) {
+        match db.contains_key(&key[..]) {
             true => Err(format!("{} already in use.", str::from_utf8(key).unwrap())),
             false => {
                 db.insert(Bytes::from(key.clone()), Bytes::from(value.clone()));
                 Ok(())
             }
+        }
+    }
+
+    pub async fn get(&self, key: &Vec<u8>) -> Result<Vec<u8>, String> {
+        match self.db.lock().await.get(&key[..]) {
+            Some(val) => Ok(val.to_vec()),
+            None => Err(format!(
+                "{} mapping doesn't exist.",
+                str::from_utf8(key).unwrap()
+            )),
         }
     }
 }
@@ -118,14 +128,10 @@ impl Dstore for Global {
 
     /// RPC that returns VALUE associated with KEY, provided it exist on Global
     async fn pull(&self, args: Request<Byte>) -> Result<Response<Byte>, Status> {
-        let db = self.db.lock().await;
-        let Byte { body } = args.into_inner();
-        match db.get(&body[..]) {
-            Some(val) => Ok(Response::new(Byte { body: val.to_vec() })),
-            None => Err(Status::not_found(format!(
-                "{} mapping doesn't exist.",
-                str::from_utf8(&body).unwrap()
-            ))),
+        let Byte { body: key } = args.into_inner();
+        match self.get(&key).await {
+            Ok(val) => Ok(Response::new(Byte { body: val })),
+            Err(e) => Err(Status::not_found(e)),
         }
     }
 
@@ -139,23 +145,24 @@ impl Dstore for Global {
     ) -> Result<Response<Self::PullFileStream>, Status> {
         // Create a double ended channel for transporting VALUE packets processed within thread
         let (tx, rx) = mpsc::channel(4);
-        let db = self.db.clone();
-        let Byte { body } = args.into_inner();
-
-        // Spawn thread to manage partitioning of a large VALUE into packet frames
-        tokio::spawn(async move {
-            let val = db.lock().await.get(&body[..]).unwrap().to_vec();
-            // Size each frame upto MAX_BYTE_SIZE and encapsulate in response packet
-            for i in 0..val.len() / MAX_BYTE_SIZE {
-                tx.send(Ok(Byte {
-                    body: val[i * MAX_BYTE_SIZE..(i + 1) * MAX_BYTE_SIZE].to_vec(),
-                }))
-                .await
-                .unwrap();
+        let Byte { body: key } = args.into_inner();
+        match self.get(&key).await {
+            Ok(val) => {
+                // Spawn thread to manage partitioning of a large VALUE into packet frames
+                tokio::spawn(async move {
+                    // Size each frame upto MAX_BYTE_SIZE and encapsulate in response packet
+                    for i in 0..val.len() / MAX_BYTE_SIZE {
+                        tx.send(Ok(Byte {
+                            body: val[i * MAX_BYTE_SIZE..(i + 1) * MAX_BYTE_SIZE].to_vec(),
+                        }))
+                        .await
+                        .unwrap();
+                    }
+                });
+                Ok(Response::new(ReceiverStream::new(rx)))
             }
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
+            Err(e) => Err(Status::not_found(e)),
+        }
     }
 
     /// RPC to remove KEY mappings on Global and add KEY to invalidate queues of Locals in cluster
@@ -233,13 +240,13 @@ impl Dstore for Global {
 mod test {
     use super::*;
 
-    #[test]
-    async fn insert_single_test() {
+    #[tokio::test]
+    async fn insert_get_test() {
         let global = Global::new();
         let (key, expected) = (b"Hello".to_vec(), b"World".to_vec());
         global.insert(&key, &expected).await;
         let value = global.get(&key).await;
 
-        assert_eq!(value, expected);
+        assert_eq!(value.unwrap(), expected);
     }
 }
